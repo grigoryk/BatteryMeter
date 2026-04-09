@@ -8,6 +8,9 @@ Built to diagnose USB-C PD negotiation issues — specifically intermittent char
 
 Tray icon shows wattage as a number: **green** = charging, **orange** = discharging, **silver** = idle.
 
+<img width="285" height="143" alt="Screenshot 2026-04-09 161436" src="https://github.com/user-attachments/assets/95e407b1-3c7c-4d52-9a75-1a251481f598" />
+<img width="181" height="123" alt="Screenshot 2026-04-09 161317" src="https://github.com/user-attachments/assets/66c25118-3c50-4329-ab9b-1d0500b35528" />
+
 Hover tooltip shows:
 ```
 ⚡ +5.6W │ 11.2V │ AC
