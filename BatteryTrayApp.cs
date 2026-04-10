@@ -12,12 +12,20 @@ public sealed class BatteryTrayApp : ApplicationContext
     private readonly NotifyIcon _notifyIcon;
     private readonly BatteryPoller _poller;
     // private readonly TaskbarPanel _panel;
+    private readonly SynchronizationContext _syncContext;
     private Icon? _currentIcon;
 
     public BatteryTrayApp()
     {
+        _syncContext = SynchronizationContext.Current ?? new SynchronizationContext();
+
         _poller = new BatteryPoller(TimeSpan.FromMilliseconds(500));
-        _poller.ReadingUpdated += OnReadingUpdated;
+        _poller.ReadingUpdated += reading => _syncContext.Post(_ => OnReadingUpdated(reading), null);
+
+        // First poll synchronously so the icon is correct before we show it
+        var firstReading = _poller.QueryBattery();
+        if (firstReading != null)
+            OnReadingUpdated(firstReading);
 
         // _panel = new TaskbarPanel();
         // _panel.Show();
@@ -25,10 +33,13 @@ public sealed class BatteryTrayApp : ApplicationContext
         _notifyIcon = new NotifyIcon
         {
             Visible = true,
-            Text = "BatteryMeter — starting…",
+            Text = "BatteryMeter",
             ContextMenuStrip = BuildContextMenu(),
-            Icon = TrayIconRenderer.Render(0, BatteryState.Idle)
+            Icon = _currentIcon ?? TrayIconRenderer.Render(0, BatteryState.Idle)
         };
+
+        // Start continuous polling now that the UI is set up
+        _poller.Start();
     }
 
     private ContextMenuStrip BuildContextMenu()
@@ -84,7 +95,7 @@ public sealed class BatteryTrayApp : ApplicationContext
             _lastIconText = iconText;
             _lastIconState = state;
 
-            try { _notifyIcon.Icon = newIcon; } catch { }
+            try { if (_notifyIcon != null) _notifyIcon.Icon = newIcon; } catch { }
 
             if (oldIcon != null)
             {
@@ -126,18 +137,18 @@ public sealed class BatteryTrayApp : ApplicationContext
             percentStr = $" ({pct:0}%)";
         }
 
-        // Tooltip: info line + sparkline chart
+        // Tooltip: info line + sparkline
         string acLabel = reading.PowerOnline ? "AC" : "Battery";
         string sparkline = BuildSparkline();
 
         string info = state switch
         {
             BatteryState.Charging =>
-                $"⚡ +{reading.ChargeRateWatts:0.0}W │ {reading.VoltageV:0.0}V │ {acLabel}",
+                $"\u26a1 +{reading.ChargeRateWatts:0.0}W \u2502 {reading.VoltageV:0.0}V \u2502 {acLabel}",
             BatteryState.Discharging =>
-                $"🔋 -{reading.DischargeRateWatts:0.0}W │ {reading.VoltageV:0.0}V │ {acLabel}",
+                $"\ud83d\udd0b -{reading.DischargeRateWatts:0.0}W \u2502 {reading.VoltageV:0.0}V \u2502 {acLabel}",
             _ =>
-                $"Idle │ {reading.VoltageV:0.0}V │ {acLabel}"
+                $"Idle \u2502 {reading.VoltageV:0.0}V \u2502 {acLabel}"
         };
 
         string tooltip = $"{info}\n{reading.RemainingCapacityMWh:N0} mWh{percentStr}\n{sparkline}";
@@ -155,7 +166,8 @@ public sealed class BatteryTrayApp : ApplicationContext
 
         try
         {
-            _notifyIcon.Text = tooltip;
+            if (_notifyIcon != null)
+                _notifyIcon.Text = tooltip;
         }
         catch
         {
@@ -205,7 +217,6 @@ public sealed class BatteryTrayApp : ApplicationContext
         }
 
         string text =
-            $"System:    {r.SystemPowerWatts:0.0}W (total draw)\n" +
             $"Charge:    {r.ChargeRateWatts:0.0}W (into battery)\n" +
             $"Discharge: {r.DischargeRateWatts:0.0}W (from battery)\n" +
             $"Voltage:   {r.VoltageV:0.0}V\n" +

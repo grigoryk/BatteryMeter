@@ -7,5 +7,4 @@ public record BatteryReading(
     bool PowerOnline,
     uint RemainingCapacityMWh,
     double VoltageV,
-    double SystemPowerWatts,
     DateTime Timestamp);
