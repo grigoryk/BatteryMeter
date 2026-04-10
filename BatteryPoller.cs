@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Management;
 
 namespace BatteryMeter;
@@ -7,70 +6,52 @@ public sealed class BatteryPoller : IDisposable
 {
     private readonly System.Threading.Timer _timer;
     private readonly ManagementObjectSearcher _batterySearcher;
-    private readonly PerformanceCounter? _powerCounter;
     private uint _fullChargedCapacityMWh;
 
     public event Action<BatteryReading>? ReadingUpdated;
 
+    private readonly TimeSpan _interval;
+
     public BatteryPoller(TimeSpan interval)
     {
+        _interval = interval;
         _fullChargedCapacityMWh = QueryFullChargedCapacity();
         _batterySearcher = new ManagementObjectSearcher("root\\WMI", "SELECT * FROM BatteryStatus");
-        _powerCounter = CreatePowerCounter();
-        _timer = new System.Threading.Timer(_ => Poll(), null, TimeSpan.Zero, interval);
+        _timer = new System.Threading.Timer(_ => Poll(), null, Timeout.InfiniteTimeSpan, interval);
     }
+
+    public void Start() => _timer.Change(TimeSpan.Zero, _interval);
 
     public uint FullChargedCapacityMWh => _fullChargedCapacityMWh;
 
     private void Poll()
     {
+        var reading = QueryBattery();
+        if (reading != null)
+            ReadingUpdated?.Invoke(reading);
+    }
+
+    public BatteryReading? QueryBattery()
+    {
         try
         {
-            double systemPowerWatts = QuerySystemPower();
-
             foreach (var obj in _batterySearcher.Get())
             {
-                var reading = new BatteryReading(
+                return new BatteryReading(
                     ChargeRateWatts: Convert.ToUInt32(obj["ChargeRate"]) / 1000.0,
                     DischargeRateWatts: Convert.ToUInt32(obj["DischargeRate"]) / 1000.0,
                     IsCharging: Convert.ToBoolean(obj["Charging"]),
                     PowerOnline: Convert.ToBoolean(obj["PowerOnline"]),
                     RemainingCapacityMWh: Convert.ToUInt32(obj["RemainingCapacity"]),
                     VoltageV: Convert.ToUInt32(obj["Voltage"]) / 1000.0,
-                    SystemPowerWatts: systemPowerWatts,
                     Timestamp: DateTime.Now);
-
-                ReadingUpdated?.Invoke(reading);
-                return;
             }
         }
         catch
         {
-            // WMI query can fail transiently; skip this cycle
+            // WMI query can fail transiently
         }
-    }
-
-    private double QuerySystemPower()
-    {
-        try
-        {
-            if (_powerCounter != null)
-                return _powerCounter.NextValue() / 1000.0;
-        }
-        catch { }
-        return 0;
-    }
-
-    private static PerformanceCounter? CreatePowerCounter()
-    {
-        try
-        {
-            return new PerformanceCounter("Power Meter", "Power", "Power Meter (0)", readOnly: true);
-        }
-        catch
-        {
-            return null;
-        }
+        return null;
     }
 
     public void Refresh() => Poll();
@@ -96,6 +77,5 @@ public sealed class BatteryPoller : IDisposable
     {
         _timer.Dispose();
         _batterySearcher.Dispose();
-        _powerCounter?.Dispose();
     }
 }
